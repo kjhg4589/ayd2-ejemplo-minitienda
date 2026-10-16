@@ -15,10 +15,7 @@ export const options = {
   // Criterios de aceptación: si no se cumplen, k6 termina con error
   thresholds: {
     http_req_duration: ['p(95)<300'], // 95% de las peticiones en menos de 300 ms
-    http_req_failed: ['rate<0.01'],   // menos del 1% de errores
-
-
-    
+    http_req_failed: ['rate<0.01'],   // menos del 1% de errores    
   },
 };
 
