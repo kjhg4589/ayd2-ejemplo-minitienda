@@ -1,0 +1,122 @@
+# Pipeline CI/CD de la Mini Tienda
+#
+#   CI (en cada push y pull request):  unitarias -> integración -> e2e
+#   CD (solo en push a main):          deploy a EC2 -> smoke test -> prueba de carga
+#
+# Cada etapa depende de la anterior (needs): si una prueba falla, NO se despliega.
+#
+# Configuración en GitHub (Settings > Secrets and variables > Actions):
+#   Variables:  EC2_HOST     IP pública o DNS de la instancia
+#               EC2_USER     ubuntu (Ubuntu) o ec2-user (Amazon Linux)
+#   Secret:     EC2_SSH_KEY  contenido completo del archivo .pem
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: 24
+
+jobs:
+  unitarias:
+    name: Pruebas unitarias
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit -- --coverage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cobertura
+          path: coverage/
+
+  integracion:
+    name: Pruebas de integración
+    needs: unitarias
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run test:integration
+
+  e2e:
+    name: Pruebas E2E
+    needs: integracion
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      # Si falla, sube el reporte con capturas y trazas para depurar
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+
+  deploy:
+    name: Deploy a EC2
+    needs: e2e
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: http://${{ vars.EC2_HOST }}
+    concurrency: produccion # nunca dos deploys a la vez
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2.pem
+          chmod 600 ~/.ssh/ec2.pem
+          ssh-keyscan -H "${{ vars.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Copiar código al servidor
+        run: |
+          rsync -az --delete \
+            --exclude node_modules --exclude .git --exclude .github \
+            --exclude tests --exclude 'tienda.db*' \
+            -e "ssh -i ~/.ssh/ec2.pem" \
+            ./ "${{ vars.EC2_USER }}@${{ vars.EC2_HOST }}:/opt/tienda/"
+
+      - name: Instalar dependencias y reiniciar
+        run: |
+          ssh -i ~/.ssh/ec2.pem "${{ vars.EC2_USER }}@${{ vars.EC2_HOST }}" \
+            "cd /opt/tienda && npm ci --omit=dev && sudo systemctl restart tienda"
+
+      # Smoke test: ¿la app quedó viva después del deploy?
+      - name: Smoke test
+        run: |
+          curl -fsS --retry 10 --retry-delay 3 --retry-all-errors \
+            "http://${{ vars.EC2_HOST }}/api/salud"
+
+  carga:
+    name: Prueba de carga (post-deploy)
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Si no se cumplen los thresholds (p95 < 300 ms, errores < 1 %), el job falla
+      - name: k6 contra el servidor desplegado
+        run: |
+          docker run --rm -i -e BASE_URL="http://${{ vars.EC2_HOST }}" \
+            grafana/k6 run - < tests/performance/carga.js

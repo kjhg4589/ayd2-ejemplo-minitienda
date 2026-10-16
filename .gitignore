@@ -1,0 +1,7 @@
+node_modules/
+coverage/
+test-results/
+playwright-report/
+tienda.db*
+*.pem
+.DS_Store

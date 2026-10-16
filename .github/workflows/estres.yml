@@ -1,0 +1,18 @@
+# Prueba de ESTRÉS: se ejecuta solo a mano (Actions > Prueba de estrés > Run workflow)
+# porque su objetivo es llevar el servidor al límite y puede dejarlo sin responder un rato.
+
+name: Prueba de estrés
+
+on:
+  workflow_dispatch:
+
+jobs:
+  estres:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: k6 contra el servidor desplegado
+        run: |
+          docker run --rm -i -e BASE_URL="http://${{ vars.EC2_HOST }}" \
+            grafana/k6 run - < tests/performance/estres.js

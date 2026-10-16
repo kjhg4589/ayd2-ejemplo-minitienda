@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Tienda</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #1d2433; }
+    .producto { display: flex; justify-content: space-between; align-items: center; padding: .75rem 0; border-bottom: 1px solid #e3e6ea; }
+    button { padding: .5rem 1rem; cursor: pointer; }
+    #carrito { margin-top: 2rem; padding: 1rem; background: #f4f6f8; border-radius: 8px; }
+    .error { color: #b42318; }
+    .exito { color: #067647; }
+  </style>
+</head>
+<body>
+  <h1>Mini Tienda</h1>
+  <div id="productos"></div>
+
+  <section id="carrito">
+    <h2>Carrito (<span data-testid="contador">0</span>)</h2>
+    <ul id="items"></ul>
+    <label>Cupón <input id="cupon" placeholder="ESTUDIANTE10"></label>
+    <button id="pagar">Pagar</button>
+    <p id="mensaje" role="status"></p>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
